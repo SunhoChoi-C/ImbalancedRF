@@ -1,0 +1,343 @@
+# Load required libraries
+library(randomForest)
+library(ROSE)
+library(caret)
+
+
+# 1. Base model here
+
+set.seed(42)
+data <- twoClassSim(1000, intercept = -15, linearVars = 15, noiseVars = 5)
+data$Class <- factor(data$Class, levels = c("Class1", "Class2"))
+table(data$Class)  # Check class distribution
+
+set.seed(42)
+trainIndex <- createDataPartition(data$Class, p = 0.8, list = FALSE)
+trainData <- data[trainIndex, ]
+testData <- data[-trainIndex, ]
+testFeatures <- testData[, -which(names(testData) == "Class")]
+
+balancedData <- ovun.sample(Class ~ ., data = trainData, method = "under", seed = 42)$data
+table(balancedData$Class)  # Check the balanced class distribution
+train_ratio <- nrow(trainData[trainData$Class == "Class1",])/(nrow(trainData[trainData$Class == "Class1",]) + nrow(trainData[trainData$Class == "Class2",]))
+nmin<-sum(trainData$Class=="Class2")
+
+set.seed(42)
+brf_model <- randomForest(
+  Class ~ ., 
+  data = trainData,
+  importance = TRUE,
+  strata=trainData$Class,
+  sampsize=c(nmin,nmin)
+)
+
+predictions <- predict(brf_model, newdata = testFeatures)
+conf_matrix <- confusionMatrix(predictions, testData$Class)
+print(conf_matrix)
+
+
+# Step 4: Train a Random Forest Model
+set.seed(42)
+
+wrf_model <- randomForest(
+  Class ~ ., 
+  data = trainData,
+  importance = TRUE,
+  classwt=c(0.025,1e5)
+)
+
+predictions <- predict(wrf_model, newdata = testFeatures)
+
+conf_matrix <- confusionMatrix(predictions, testData$Class)
+print(conf_matrix)
+
+
+
+
+
+
+
+
+#2. Model with cross-validation
+ntree_values <- c(50, 100, 150, 200, 250, 300, 350, 400)
+
+# Create an empty data frame to store results
+cv_results_balanced_acc <- data.frame(ntree = integer(), Accuracy = numeric())
+cv_results_weighted_acc <- data.frame(ntree = integer(), Accuracy = numeric())
+cv_results_balanced_spec <- data.frame(ntree = integer(), Accuracy = numeric())
+cv_results_weighted_spec <- data.frame(ntree = integer(), Accuracy = numeric())
+# Store the models
+models_balanced_acc <- list()  
+models_weighted_acc <- list()
+models_balanced_spec <- list()
+models_weighted_spec <- list()
+
+# Perform 5-fold cross-validation
+set.seed(42)
+folds <- createFolds(trainData$Class, k = 5)
+
+for (ntree in ntree_values) {
+  accuracy_balanced <- numeric()
+  accuracy_weighted <- numeric()
+  specificity_balanced <- numeric()
+  specificity_weighted <- numeric()
+  
+  for (fold in folds) {
+    # train test split
+    train_fold <- trainData[-fold, ]
+    test_fold <- trainData[fold, ]
+    
+    # Perform undersampling of the majority class
+    class_counts <- table(train_fold$Class)
+    total_samples <- sum(class_counts)
+    num_classes <- length(class_counts)
+    class_weights <- total_samples / (num_classes * class_counts)
+    
+    
+    minority_class <- names(which.min(class_counts))
+    majority_class <- names(which.max(class_counts))
+    
+    # Sample the same number of rows from the majority class as the minority class
+    undersampled_majority <- train_fold[train_fold$Class == majority_class, ]
+    undersampled_majority <- undersampled_majority[sample(1:nrow(undersampled_majority), 
+                                                          size = class_counts[minority_class]), ]
+    
+    balanced_train <- rbind(train_fold[train_fold$Class == minority_class, ], 
+                            undersampled_majority)
+    train_ratio <- nrow(train_fold[train_fold$Class == "Class1",])/(nrow(train_fold[train_fold$Class == "Class1",]) + nrow(train_fold[train_fold$Class == "Class2",]))
+    # Train the Random Forest model
+    brf_model <- randomForest(Class ~ ., data = balanced_train, ntree = ntree)
+    wrf_model <- randomForest(Class~ ., data = train_fold, ntree = ntree, classwt = c(0.025,1e5))
+    
+    
+    
+    # Make predictions on the test fold
+    predictions <- predict(brf_model, test_fold)
+    fold_accuracy_balanced <- mean(predictions == test_fold$Class)
+    fold_specificity_balanced <- specificity(predictions, test_fold$Class)
+    
+    
+    predictions <- predict(wrf_model, test_fold)
+    fold_accuracy_weighted <- mean(predictions == test_fold$Class)
+    fold_specificity_weighted <- specificity(predictions, test_fold$Class)
+    
+    
+    accuracy_balanced <- c(accuracy_balanced, fold_accuracy_balanced)
+    accuracy_weighted <- c(accuracy_weighted, fold_accuracy_weighted)
+    
+    specificity_balanced <- c(specificity_balanced, fold_specificity_balanced)
+    specificity_weighted <- c(specificity_weighted, fold_specificity_weighted)
+    
+  }
+  mean_accuracy_balanced <- mean(accuracy_balanced)
+  mean_accuracy_weighted <- mean(accuracy_weighted)
+  mean_specificity_balanced <- mean(specificity_balanced)
+  mean_specificity_weighted <- mean(specificity_weighted)
+  
+  models_balanced_acc <- c(models_balanced_acc, brf_model)
+  models_weighted_acc <- c(models_weighted_acc, wrf_model)
+  models_balanced_spec <- c(models_balanced_spec, brf_model)
+  models_weighted_spec <- c(models_weighted_spec, wrf_model)
+  
+  
+  # Store the mean accuracy for the current ntree value
+  if (length(models_balanced_acc) == 0 || mean_accuracy_balanced > max(cv_results_balanced_acc$Accuracy[-nrow(cv_results_balanced_acc)])) {
+    best_model_balanced_acc <- brf_model
+    best_ntree_balanced_acc <- ntree
+  }
+  cv_results_balanced_acc <- rbind(cv_results_balanced_acc, data.frame(ntree = ntree, Accuracy = mean(accuracy_balanced)))
+  
+  if (length(models_weighted_acc) == 0 || mean_accuracy_weighted > max(cv_results_weighted_acc$Accuracy[-nrow(cv_results_weighted_acc)])) {
+    best_model_weighted_acc <- wrf_model
+    best_ntree_weighted_acc <- ntree
+  }
+  cv_results_weighted_acc <- rbind(cv_results_weighted_acc, data.frame(ntree = ntree, Accuracy = mean(accuracy_weighted)))
+  if (length(models_balanced_spec) == 0 || mean_specificity_balanced > max(cv_results_balanced_spec$Specificity[-nrow(cv_results_balanced_spec)])) {
+    best_model_balanced_spec <- brf_model
+    best_ntree_balanced_spec <- ntree
+  }
+  cv_results_balanced_spec <- rbind(cv_results_balanced_spec, data.frame(ntree = ntree, Specificity = mean(specificity_balanced)))
+  if (length(models_weighted_spec) == 0 || mean_specificity_weighted > max(cv_results_weighted_spec$Specificity[-nrow(cv_results_weighted_spec)])) {
+    best_model_weighted_spec <- wrf_model
+    best_ntree_weighted_spec <- ntree
+  }
+  cv_results_weighted_spec <- rbind(cv_results_weighted_spec, data.frame(ntree = ntree, Specificity = mean(specificity_weighted)))
+}
+
+
+predictions <- predict(best_model_balanced_acc, newdata = testFeatures)
+conf_matrix <- confusionMatrix(predictions, testData$Class)
+print(conf_matrix)
+brf_roc <- predict(best_model_balanced_acc,newdata=testFeatures,type="prob")
+
+library(pROC)
+plot.roc(testData$Class,brf_roc[,1],col=1,main="ROC curves")
+plot.roc(testData$Class,wrf_roc[,1],add=TRUE,col=2)
+plot.roc(testData$Class,mix_roc[,1],add=TRUE,col=3)
+legend(0.3,0.5,legend=c("BRF","WRF","MixRF"),fill=c("black","red","green"))
+rocobj <- plot.roc(testData$Class, mix_roc[,1],
+                   main = "Confidence intervals", 
+                   percent=TRUE,
+                   ci = TRUE,                  # compute AUC (of AUC by default)
+                   print.auc = TRUE)       
+
+
+predictions <- predict(best_model_weighted_acc, newdata = testFeatures)
+conf_matrix <- confusionMatrix(predictions, testData$Class)
+print(conf_matrix)
+wrf_roc <- predict(best_model_weighted_acc,newdata=testFeatures,type="prob")
+
+plot.roc(testData$Class,wrf_roc[,1])
+rocobj <- plot.roc(testData$Class, wrf_roc[,1],
+                   main = "Confidence intervals", 
+                   percent=TRUE,
+                   ci = TRUE,                  # compute AUC (of AUC by default)
+                   print.auc = TRUE)       
+
+
+
+predictions <- predict(best_model_balanced_spec, newdata = testFeatures)
+conf_matrix <- confusionMatrix(predictions, testData$Class)
+print(conf_matrix)
+
+
+predictions <- predict(best_model_weighted_spec, newdata = testFeatures)
+conf_matrix <- confusionMatrix(predictions, testData$Class)
+print(conf_matrix)
+
+
+print(cv_results_balanced_acc)
+print(cv_results_weighted_acc)
+print(cv_results_balanced_spec)
+print(cv_results_weighted_spec)
+
+# Plot the results
+plot(cv_results_balanced_acc$ntree, cv_results_balanced_acc$Accuracy, type = "b", col = "blue", pch = 16,
+     xlab = "Number of Trees (ntree)", ylab = "Cross-Validated Accuracy",
+     main = "CV Accuracy vs. ntree with Undersampling")
+
+plot(cv_results_weighted_acc$ntree, cv_results_weighted_acc$Accuracy, type = "b", col = "blue", pch = 16,
+     xlab = "Number of Trees (ntree)", ylab = "Cross-Validated Accuracy",
+     main = "CV Accuracy vs. ntree with Undersampling")
+
+plot(cv_results_balanced_spec$ntree, cv_results_balanced_spec$Specificity, type = "b", col = "blue", pch = 16,
+     xlab = "Number of Trees (ntree)", ylab = "Cross-Validated Specificity",
+     main = "CV Specificity vs. ntree with Undersampling")
+
+plot(cv_results_weighted_spec$ntree, cv_results_weighted_spec$Specificity, type = "b", col = "blue", pch = 16,
+     xlab = "Number of Trees (ntree)", ylab = "Cross-Validated Specificity",
+     main = "CV Specificity vs. ntree with Undersampling")
+
+
+
+#3. Hyperparameter selecting with different classwt
+
+
+#4 Mixed random forest model
+set.seed(42)
+
+alpha = 0.2 #hyperparameter that balances BRF and WRF
+nmin <- sum(trainData$Class=="Class2")
+summary(trainData$Class)
+
+mixrf_model <- randomForest(
+  Class ~ ., 
+  data = trainData,
+  ntree = 100,
+  strata=trainData$Class,
+  sampsize=c(nmin/alpha,nmin),
+  classwt=c(0.025,6.5e4)
+)
+
+
+mix_predictions <- predict(mixrf_model, newdata = testFeatures)
+conf_matrix <- confusionMatrix(mix_predictions, testData$Class)
+print(conf_matrix)
+mix_roc <- predict(mixrf_model,newdata=testFeatures, type="prob")
+
+
+alpha_values=c(0.2,0.3,0.4,0.5,0.6)
+cv_results_mixed_acc <- data.frame(alpha = integer(), Accuracy = numeric())
+cv_results_mixed_spec <- data.frame(alpha = integer(), Specificity = numeric())
+models_mixed_acc=list()
+models_mixed_spec=list()
+
+for (alpha in alpha_values) {
+  accuracy_mixed <- numeric()
+  specificity_mixed <- numeric()
+  
+  for (fold in folds) {
+    # train test split
+    train_fold <- trainData[-fold, ]
+    test_fold <- trainData[fold, ]
+    nmin <- sum(train_fold$Class=="Class2")
+    
+    mix_model <- randomForest(
+      Class ~ ., 
+      data = train_fold,
+      ntree = 100,
+      strata=train_fold$Class,
+      sampsize=c(nmin/alpha,nmin),
+      classwt=c(0.025,7e4)
+    )
+    
+    
+    
+    
+    # Make predictions on the test fold
+    predictions <- predict(mix_model, test_fold)
+    fold_accuracy_mixed <- mean(predictions == test_fold$Class)
+    fold_specificity_mixed <- specificity(predictions, test_fold$Class)
+    
+    
+    accuracy_mixed <- c(accuracy_mixed, fold_accuracy_mixed)
+    
+    specificity_mixed <- c(specificity_mixed, fold_specificity_mixed)
+    
+  }
+  mean_accuracy_mixed <- mean(accuracy_mixed)
+  mean_specificity_mixed <- mean(specificity_mixed)
+  
+  models_mixed_acc <- c(models_mixed_acc, mix_model)
+  models_mixed_spec <- c(models_mixed_spec, mix_model)
+  
+  
+  # Store the mean accuracy for the current alpha value
+  if (length(models_mixed_acc) == 0 || mean_accuracy_mixed > max(cv_results_mixed_acc$Accuracy[-nrow(cv_results_mixed_acc)])) {
+    best_model_mixed_acc <- mix_model
+    best_alpha_acc <- alpha
+  }
+  cv_results_mixed_acc <- rbind(cv_results_mixed_acc, data.frame(alpha = alpha, Accuracy = mean(accuracy_mixed)))
+  
+  
+  if (length(models_mixed_spec) == 0 || mean_specificity_mixed > max(cv_results_mixed_spec$Specificity[-nrow(cv_results_mixed_spec)])) {
+    best_model_mixed_spec <- mix_model
+    best_alpha_spec <- alpha
+  }
+  cv_results_mixed_spec <- rbind(cv_results_mixed_spec, data.frame(alpha = alpha, Specificity = mean(specificity_mixed)))
+}
+
+
+library(randomForestSRC)
+
+rf <- rfsrc(Class ~., trainData, rfq =  TRUE, ntree = 3000, perf.type = "g.mean", importance = TRUE)
+threshold_rf<-predict(rf,newdata=testData)
+plot.roc(x=testData$Class,threshold_rf$predicted[,1])
+threshold=sum(trainData$Class=="Class1")/length(trainData$Class)
+predic <- ifelse(threshold_rf$predicted[,1] > threshold,1,0)
+predic
+class <- ifelse(testData$Class=="Class1",1,0)
+conf_matrix <- confusionMatrix(as.factor(predic),as.factor(class))
+conf_matrix
+rocobj <- plot.roc(testData$Class, threshold_rf$predicted[,1],
+                   main = "Confidence intervals", 
+                   percent=TRUE,
+                   ci = TRUE,                  # compute AUC (of AUC by default)
+                   print.auc = TRUE)       
+plot.roc(testData$Class,brf_roc[,1],col=1,main="ROC curves")
+plot.roc(testData$Class,wrf_roc[,1],add=TRUE,col=2)
+plot.roc(testData$Class,mix_roc[,1],add=TRUE,col=3)
+plot.roc(x=testData$Class,threshold_rf$predicted[,1],add=TRUE,col=4)
+legend(0.3,0.5,legend=c("BRF","WRF","MixRF","Threshold"),fill=c("black","red","green","blue"))
+wrf_roc[,1]<-mix_roc[,1]
+mix_roc[,1]<-threshold_rf$predicted,1]

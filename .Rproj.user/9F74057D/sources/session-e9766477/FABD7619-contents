@@ -1,0 +1,15 @@
+Package: ImbalancedRF
+Type: Package
+Title: Random Forest models for binary classification problems with imbalanced data
+Version: 0.1.0
+Author: Haoxuan Fu, Sunho Choi
+Maintainer: Haoxuan Fu <hf357@cornell.edu> Sunho Choi <sc3387@cornell.edu>
+Description: Provides functions for multiple random forest models that can be used on imbalanced data binary classification problems.
+ Contains traditional models such as BRF and WRF and also contains derived methods such as Mixed Random Forest and Threshold model.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Imports:
+    randomForest,
+    caret
+RoxygenNote: 7.3.2
