@@ -1,5 +1,8 @@
 #' Threshold Random Forest
 #'
+#' @description This function fits a threshold Random Forest model using the existing RandomForestSRC library.
+#' It returns the fitted model and the confusion matrix of the test data.
+#'
 #' @param data A data frame that contains the data, with the response variable y being a binary variable of 0 and 1 with 1 being the minority class.
 #' @param ntree The number of trees used in the balanced random forest model. The default is set to 3000.
 #' @param prob The ratio of training set to the whole data. The default is set to 0.8

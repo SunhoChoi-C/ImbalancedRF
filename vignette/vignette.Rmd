@@ -1,0 +1,186 @@
+---
+title: "Random Forest Models on Imbalanced Data"
+author: "Haoxuan Fu & Sunho Choi"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+## Introduction
+ The `ImbalancedRF6520` package provides functions for multiple models of Random Forest that can be applied to Imbalanced data sets. It contains traditional models such as Balanced Random Forest, Weighted Random Forest, as well as derived methods such as Mixed Random Forest and Threshold Random Forest. This package can be used to compare the performance of the above methods.
+ 
+This vignette includes 4 functions that correspond to each model.
+ 
+1. `BRF` : Fits a Balanced Random Forest model
+2. `WRF` : Fits a Weighted Random Forest model
+3. `MixedRF`: Fits a Mixed Random Forest model that combines BRF and WRF model
+4. `ThresholdRF`: Fits a Threshold Random Forest model
+
+ 
+ 
+ 
+ 
+## Installation
+
+To install the package, you can use the following command:
+
+```r
+# Install devtools if not already installed
+install.packages("devtools")
+
+# Install ImbalancedRF from GitHub
+devtools::install_github("SunhoChoi-C/ImbalancedRF")
+```
+
+Then load the package
+```{r}
+library(ImbalancedRF)
+```
+
+
+## Model Introduction and Examples
+
+### 1.`BRF`
+
+ This function utilizes the randomForest library to implement a balanced random forest model on the data. This function partitions the data into a training set and test set, then fits a balanced random forest model using the training data. Finally, it returns the fitted model and the confusion matrix of the test data.
+
+
+#### Parameters
+
++ `data`: A data frame that contains the data, with the response variable y being a binary variable of 0 and 1 with 1 being the minority class.
++ `ntree`: The number of trees used in the balanced random forest model. The default is set to 100.
++ `prob`: The ratio of training set to the whole data. The default is set to 0.8
+
+#### Output
+ The function returns a vector of length 2 with "model" being the Balanced Random Forest model fit on the data and "matrix" being the confusion matrix on the test data set.
+ 
+
+#### Example
+```{r}
+set.seed(123)
+
+data <- caret::twoClassSim(1000, intercept = -15, linearVars = 15, noiseVars = 5) 
+#generate sample imbalanced data set
+
+names(data)[names(data)=="Class"]="y" 
+# rename the response variable as "y"
+
+data$y = as.factor(ifelse(data$y=="Class1",0,1)) 
+# Change the response variable value to 0,1 with 1 being the minority class
+
+result <- ImbalancedRF::BRF(data,ntree=100,prob=0.8)
+
+print(result$matrix)
+```
+
+
+
+### 2.`WRF`
+
+ This function utilizes the randomForest library to implement a weighted random forest model on the data. This function partitions the data into a training set and test set, then fits a balanced random forest model using the training data. Finally, it returns the fitted model and the confusion matrix of the test data.
+
+
+#### Parameters
+
++ `data`: A data frame that contains the data, with the response variable y being a binary variable of 0 and 1 with 1 being the minority class.
++ `weights`: A vector that contains the weights that we want to test on. The function uses k-fold CV to find best weight.
++ 'k': A parameter that indicates the number of folds to create during cross validation process. The default is set to 5.
++ `ntree`: The number of trees used in the balanced random forest model. The default is set to 100.
++ `prob`: The ratio of training set to the whole data. The default is set to 0.8
+
+#### Output
+ The function returns a vector of length 2 with "model" being the Weighted Random Forest model fit on the data and "matrix" being the confusion matrix on the test data set.
+ 
+
+#### Example
+```{r}
+set.seed(123)
+
+data <- caret::twoClassSim(1000, intercept = -15, linearVars = 15, noiseVars = 5) 
+#generate sample imbalanced data set
+
+names(data)[names(data)=="Class"]="y" 
+# rename the response variable as "y"
+
+data$y = as.factor(ifelse(data$y=="Class1",0,1)) 
+# Change the response variable value to 0,1 with 1 being the minority class
+
+result <- ImbalancedRF::WRF(data,weights=c(100,1000,10000,100000),k=5,ntree=100,prob=0.8)
+
+print(result$matrix)
+```
+
+### 3.`MixedRF`
+
+ This function utilizes the randomForest library to implement a mixed random forest. The mixed random forest takes a parameter alpha and does downsampling on the original data so that the ratio is 1:alpha. Then it uses weighted random forest for the downsampled data to fit a model. Finally, it returns the fitted model and the confusion matrix of the test data.
+
+
+#### Parameters
+
++ `data`: A data frame that contains the data, with the response variable y being a binary variable of 0 and 1 with 1 being the minority class.
++ `weights`: A vector that contains the weights that we want to test on. The function uses k-fold CV to find best weight.
++ `alphas`: A vector that contains the alphas that we want to test on. The function uses k-fold CV to find the best alpha.
++ 'k': A parameter that indicates the number of folds to create during cross validation process. The default is set to 5.
++ `ntree`: The number of trees used in the balanced random forest model. The default is set to 100.
++ `prob`: The ratio of training set to the whole data. The default is set to 0.8
+
+#### Output
+ The function returns a vector of length 2 with "model" being the Mixed Random Forest model fit on the data and "matrix" being the confusion matrix on the test data set.
+ 
+
+#### Example
+```{r}
+set.seed(123)
+
+data <- caret::twoClassSim(1000, intercept = -15, linearVars = 15, noiseVars = 5) 
+#generate sample imbalanced data set
+
+names(data)[names(data)=="Class"]="y" 
+# rename the response variable as "y"
+
+data$y = as.factor(ifelse(data$y=="Class1",0,1)) 
+# Change the response variable value to 0,1 with 1 being the minority class
+
+result <- ImbalancedRF::MixedRF(data,weights=c(100,1000,10000,100000),alphas=c(2,3,4,5),k=5,ntree=100,prob=0.8)
+
+print(result$matrix)
+```
+
+### 4.`ThresholdRF`
+
+ This function fits a threshold Random Forest model using the existing RandomForestSRC library. It returns the fitted model and the confusion matrix of the test data.
+
+
+#### Parameters
+
++ `data`: A data frame that contains the data, with the response variable y being a binary variable of 0 and 1 with 1 being the minority class.
++ `ntree`: The number of trees used in the balanced random forest model. The default is set to 100.
++ `prob`: The ratio of training set to the whole data. The default is set to 0.8
+
+#### Output
+ The function returns a vector of length 2 with "model" being the Weighted Random Forest model fit on the data and "matrix" being the confusion matrix on the test data set.
+ 
+
+#### Example
+```{r}
+set.seed(123)
+
+data <- caret::twoClassSim(1000, intercept = -15, linearVars = 15, noiseVars = 5) 
+#generate sample imbalanced data set
+
+names(data)[names(data)=="Class"]="y" 
+# rename the response variable as "y"
+
+data$y = as.factor(ifelse(data$y=="Class1",0,1)) 
+# Change the response variable value to 0,1 with 1 being the minority class
+
+result <- ImbalancedRF::ThresholdRF(data,ntree=100,prob=0.8)
+
+print(result$matrix)
+```
+
+
+
+## Conclusion
+
+ Generally, BRF and ThresholdRF shows good performance. The performance of WRF and MixedRF rely heavily on how precisely we can fine tune the weight and alpha parameters. However, this process takes much computing time when the data set is large. Choosing the appropriate method depending on the data set is key to high performance.  
